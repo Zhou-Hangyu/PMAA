@@ -27,7 +27,7 @@ class CogDataset_v46(Dataset):
         self.load_spatio_temporal_info()
 
     def __len__(self):
-        return 5000
+        return 2380
     
     def transforms(self, msi):
 
@@ -56,10 +56,7 @@ class CogDataset_v46(Dataset):
         dates = row["dates"]
 
         # sample num_frames from 3 to self.max_num_frames
-        if self.mode == "train":
-            self.num_frames = random.randint(5, self.max_num_frames)
-        elif self.mode == "test":
-            self.num_frames = self.max_num_frames
+        self.num_frames = self.max_num_frames * 3
         
         day_random_idx = random.randint(0, len(day_counts)-self.num_frames)        
         FILE_PATH = os.path.join(self.dataset_path, f"{roi}_patch{patch_id}.cog")
@@ -84,16 +81,36 @@ class CogDataset_v46(Dataset):
         # print(msi.shape, self.num_frames)
         assert msi.shape == (18, 256 * self.num_frames, 256)
         msi = msi.reshape(18, self.num_frames, 256, 256)
+        
+        # print(self.num_frames, self.max_num_frames)
+        buffer = torch.ones((18,self.max_num_frames*2,256,256))
+        count = 0
+        indices = list()
+        for i in range(self.num_frames):
+            if (self.max_num_frames*2) == count: break
+            if msi[:3,i].max() == 0:
+                pass
+            else:
+                buffer[:,count] = msi[:,i]
+                indices+=[count]
+                count+=1
+        indices = torch.Tensor(indices).long()
+        
+        msi = buffer
 
+        # print(len(indices), self.max_num_frames+1)
+        
         cld_count = msi[15].mean(keepdim=True, dim=[1,2])
         least_cld_day = cld_count.min(0).indices[0,0]
-        cloudy_days = [i for i in range(self.num_frames) if i != least_cld_day]
+        cloudy_days = [i for i in range(self.max_num_frames+1) if i != least_cld_day]
 
-        least_cloudy_image = msi[(3,2,1,7),least_cld_day]
-        cloudy_image = msi[[3,2,1,7]]
+        least_cloudy_image = msi[(3,2,1,7),least_cld_day] * 2 - 1
+        cloudy_image = msi[[3,2,1,7]] * 2 - 1
         other_images = [cloudy_image[:, day_index] for day_index in cloudy_days[:3]]
+        # 
+        # print(least_cloudy_image.shape, cloudy_image.shape, len(other_images), other_images[0].shape, other_images[1].shape, other_images[2].shape)
 
-        return other_images, least_cloudy_image, torch.zeros([1])
+        return other_images, least_cloudy_image, msi
 
     def load_spatio_temporal_info(self):
         csv_list = glob.glob("/share/hariharan/cloud_removal/MultiSensor/dataset_temp_preprocessed_v2/spatio_temporal_v46/roi*.csv")
@@ -116,6 +133,6 @@ class CogDataset_v46(Dataset):
                 df["dates"] = df['dates'].apply(lambda x: x.replace("[", "").replace("]", "").replace("'", "").replace("\n", "").split())
                 self.roi_spatio_temporal_info = pd.concat([self.roi_spatio_temporal_info, df], ignore_index=True, axis=0)
 
-batch_size = 4
-dataset = CogDataset_v46(max_num_frames=8, verbose=False)
-dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0, drop_last=True)
+# batch_size = 4
+# dataset = CogDataset_v46(max_num_frames=8, verbose=False)
+# dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0, drop_last=True)
