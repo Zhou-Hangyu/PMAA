@@ -27,7 +27,7 @@ parser.add_argument("--root", type=str, default='data',
 parser.add_argument("--cloud_model_path", type=str,
                     default='./data/Feature_Extrator_FS2.pth', help="path to feature extractor model")
 parser.add_argument("--save_model_path", type=str,
-                    default='./checkpoints0514', help="Path to save model")
+                    default='./checkpoints0516', help="Path to save model")
 parser.add_argument("--dataset_name", type=str, choices=["CTGAN_Sen2_MTC", "AllClear_v1"],
                     default='AllClear_v1', help="name of the dataset")
 parser.add_argument("--load_gen", type=str, default='',
@@ -46,7 +46,7 @@ parser.add_argument("--lr", type=float, default=5e-4, help="learning rate")
 parser.add_argument("--workers", type=int, default=4,
                     help="number of cpu threads to use during batch generation")
 parser.add_argument("--batch_size", type=int,
-                    default=1, help="size of the batches")
+                    default=4, help="size of the batches")
 parser.add_argument('--lambda_L1', type=float,
                     default=100.0, help='weight for L1 loss')
 parser.add_argument('--lambda_aux', type=float,
@@ -63,22 +63,23 @@ parser.add_argument("--label_noise", action='store_true',
                     help="whether to add noise on the label of gan training")
 
 """base_options"""
-parser.add_argument("--gpu_id", type=str, default='3', help="gpu id")
+parser.add_argument("--gpu_id", type=str, default='0', help="gpu id")
 parser.add_argument("--manual_seed", type=int,
                     default=2022, help="random_seed you want")
 
 opt, _ = parser.parse_known_args()
 print(opt)
 
+opt.runname = f"{opt.dataset_name}_bs{opt.batch_size}_L1{opt.lambda_L1}"
 os.makedirs(os.path.join(opt.save_model_path,
-            opt.dataset_name), exist_ok=True)
+            opt.runname), exist_ok=True)
 fixed_seed(opt.manual_seed)
 
 if opt.dataset_name == "AllClear_v1":
     from AllClear_v50_0514 import CogDataset_v46
     dataset = CogDataset_v46(max_num_frames=8, mode="train", verbose=False)
     train_loader = DataLoader(dataset, batch_size=opt.batch_size, shuffle=True, num_workers=opt.workers, drop_last=True)    
-    dataset = CogDataset_v46(max_num_frames=8, mode="val", verbose=False)
+    dataset = CogDataset_v46(max_num_frames=8, mode="test", verbose=False)
     val_loader = DataLoader(dataset, batch_size=opt.batch_size, shuffle=True, num_workers=opt.workers, drop_last=True)    
     
 elif opt.dataset_name == "CTGAN_Sen2_MTC":
@@ -132,7 +133,7 @@ model_DIS = DIS
 
 
 def train(opt, model_GEN, model_DIS, cloud_detection_model, optimizer_G, optimizer_D, train_loader, val_loader):
-    writer = SummaryWriter('runs29/%s' % opt.dataset_name)
+    writer = SummaryWriter('runs0516/%s' % opt.runname)
 
     noise = opt.label_noise
     criterionGAN = GANLoss(opt.gan_mode)
@@ -174,6 +175,12 @@ def train(opt, model_GEN, model_DIS, cloud_detection_model, optimizer_G, optimiz
             real_A[0], real_A[1], real_A[2], real_B = real_A[0].cuda(
             ), real_A[1].cuda(), real_A[2].cuda(), real_B.cuda()
 
+            if opt.dataset_name == "AllClear_v1":
+                real_A[0] = real_A[0] * 2 - 1
+                real_A[1] = real_A[1] * 2 - 1
+                real_A[2] = real_A[2] * 2 - 1
+                real_B   = real_B * 2 - 1
+                
             with torch.no_grad():
                 M0, _, _ = cloud_detection_model(real_A[0])
                 M1, _, _ = cloud_detection_model(real_A[1])
@@ -252,12 +259,12 @@ def train(opt, model_GEN, model_DIS, cloud_detection_model, optimizer_G, optimiz
         if psnr_max < psnr:
             psnr_max = psnr
             torch.save(model_GEN.state_dict(), os.path.join(
-                opt.save_model_path, opt.dataset_name, f'G_best_PSNR_{psnr:.3f}_SSIM_{ssim:.3f}.pth'))
+                opt.save_model_path, opt.runname, f'G_best_PSNR_{psnr:.3f}_SSIM_{ssim:.3f}.pth'))
 
         if ssim_max < ssim:
             ssim_max = ssim
             torch.save(model_GEN.state_dict(), os.path.join(
-                opt.save_model_path, opt.dataset_name, f'G_best_SSIM_{ssim:.3f}_PNSR_{psnr:.3f}.pth'))
+                opt.save_model_path, opt.runname, f'G_best_SSIM_{ssim:.3f}_PNSR_{psnr:.3f}.pth'))
 
         scheduler_D.step()
         scheduler_G.step()
@@ -277,6 +284,13 @@ def valid(opt, model_GEN, val_loader, criterionL1, writer, epoch):
         for (real_A, real_B, image_names) in val_loader:
             real_A[0], real_A[1], real_A[2], real_B = real_A[0].cuda(
             ), real_A[1].cuda(), real_A[2].cuda(), real_B.cuda()
+            
+            if opt.dataset_name == "AllClear_v1":
+                real_A[0] = real_A[0] * 2 - 1
+                real_A[1] = real_A[1] * 2 - 1
+                real_A[2] = real_A[2] * 2 - 1
+                real_B   = real_B * 2 - 1
+            
             real_A_input = torch.stack(
                 (real_A[0], real_A[1], real_A[2]), 1).cuda()
             fake_B, _, _ = model_GEN(real_A_input)
