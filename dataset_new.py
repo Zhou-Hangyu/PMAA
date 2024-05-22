@@ -7,6 +7,10 @@ import torch
 
 class Sen2_MTC(Dataset):
     def __init__(self, opt, mode='train'):
+        if "root_file" in opt:
+            self.root_file = opt.root_file
+        else:
+            self.root_file = opt.root
         self.root = opt.root
         self.mode = mode
         self.filepair = []
@@ -14,15 +18,15 @@ class Sen2_MTC(Dataset):
 
         if mode == 'train':
             self.tile_list = np.loadtxt(os.path.join(
-                self.root, 'train.txt'), dtype=str)
+                self.root_file, 'train.txt'), dtype=str)
         elif mode == 'val':
             self.data_augmentation = None
             self.tile_list = np.loadtxt(
-                os.path.join(self.root, 'val.txt'), dtype=str)
+                os.path.join(self.root_file, 'val.txt'), dtype=str)
         elif mode == 'test':
             self.data_augmentation = None
             self.tile_list = np.loadtxt(
-                os.path.join(self.root, 'test.txt'), dtype=str)
+                os.path.join(self.root_file, 'test.txt'), dtype=str)
 
         for tile in self.tile_list:
             image_name_list = [image_name.split('.')[0] for image_name in os.listdir(

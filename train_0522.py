@@ -24,6 +24,11 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 import numpy as np
 import wandb
 
+# use logger 
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 warnings.filterwarnings("ignore")
 
@@ -82,6 +87,7 @@ parser.add_argument("--manual_seed", type=int,
 
 opt, _ = parser.parse_known_args()
 print(opt)
+logger.info(opt)
 
 if opt.dataset_name == "CTGAN_Sen2_MTC": dataset_name_ = "SEN2MTC"
 if opt.dataset_name == "AllClear": dataset_name_ = "AllClear"
@@ -130,6 +136,7 @@ cloud_detection_model.eval()
 set_requires_grad(cloud_detection_model, False)
 
 print('Load ours model')
+logger.info('Load ours model')
 GEN = PMAA(32, 4)
 
 def replace_batchnorm(model):
