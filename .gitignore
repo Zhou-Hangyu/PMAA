@@ -1,10 +1,16 @@
+checkpoints0515
+runs29
+wandb
+watch_folder
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
 
 # C extensions
-*.so
+*.so 
 
 # Distribution / packaging
 .Python
