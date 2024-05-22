@@ -6,6 +6,10 @@ __pycache__/
 # C extensions
 *.so
 
+checkpoints0515
+runs29
+wandb
+
 # Distribution / packaging
 .Python
 build/
