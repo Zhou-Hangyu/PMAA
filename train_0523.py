@@ -79,6 +79,10 @@ parser.add_argument("--aux_loss", action='store_true',
                     help="whether use auxiliary loss(1/0)")
 parser.add_argument("--label_noise", action='store_true',
                     help="whether to add noise on the label of gan training")
+parser.add_argument("--masked_L1", type=int, default=0,
+                    help="For AllClear, use masked the lsos by the target cloud mask")
+parser.add_argument("--pred_cloud", type=int, default=0,
+                    help="For AllClear, use masked the lsos by the target cloud mask")
 
 """base_options"""
 parser.add_argument("--gpu_id", type=str, default='0', help="gpu id")
@@ -90,8 +94,15 @@ print(opt)
 logger.info(opt)
 
 if opt.dataset_name == "CTGAN_Sen2_MTC": dataset_name_ = "SEN2MTC"
-if opt.dataset_name == "AllClear": dataset_name_ = "AllClear"
-run_name = f"PMAA_{dataset_name_}_lm{int(opt.lambda_L1)}_la{int(opt.lambda_aux)}_bs{opt.batch_size}_seed{opt.manual_seed}_0522"
+if opt.dataset_name == "AllClear": dataset_name_ = "AllClear"   
+run_name = f"PMAA_{dataset_name_}_lm{int(opt.lambda_L1)}_la{int(opt.lambda_aux)}_bs{opt.batch_size}_lr{opt.lr}_0523"
+if opt.dataset_name == "AllClear": 
+    if opt.masked_L1 == 0:
+        run_name += "_AddCldMask"
+    elif opt.masked_L1 == 1:
+        run_name += "_AddCldMaskedL1"
+    if opt.pred_cloud == 1:
+        run_name += "_PredCloud"
 wandb.init(project="allclear-pmaa-v1", name=run_name, config=opt)
 
 os.makedirs(os.path.join(opt.save_model_path,
@@ -111,7 +122,7 @@ if opt.dataset_name == "AllClear":
                         selected_rois="all", 
                         main_sensor="s2_toa", 
                         aux_sensors=[],
-                        aux_data=[],
+                        aux_data=["cld_shdw"],
                         format="stp",
                         target="s2p",
                         tx=3)
@@ -165,19 +176,26 @@ if opt.optimizer == 'SGD':
     optimizer_D = torch.optim.SGD(
         DIS.parameters(), lr=opt.lr, momentum=0.9, nesterov=True)
 
-# def train(opt, model_GEN, model_DIS, cloud_detection_model, optimizer_G, optimizer_D, train_loader, val_loader):
-
 model_GEN = GEN
 model_DIS = DIS
 
 def preprocess_images(opt, batch, pmaa_bands=(3,2,1,7), mode="train"):
     if opt.dataset_name == "CTGAN_Sen2_MTC" or mode=="validation":
         real_A, real_B, _ = batch
-        return real_A[0].cuda(), real_A[1].cuda(), real_A[2].cuda(), real_B.cuda()
+        with torch.no_grad():
+            M0, _, _ = cloud_detection_model(real_A[0].cuda())
+            M1, _, _ = cloud_detection_model(real_A[1].cuda())
+            M2, _, _ = cloud_detection_model(real_A[2].cuda())
+        M = [M0, M1, M2]
+
+        return real_A[0].cuda(), real_A[1].cuda(), real_A[2].cuda(), real_B.cuda(), M
+    
     elif opt.dataset_name == "AllClear":        
         real_As = batch["input_images"] * 2 - 1
         real_Bs = batch["target"] * 2 - 1
-        return real_As[:,pmaa_bands,0].cuda(), real_As[:,pmaa_bands,1].cuda(), real_As[:,pmaa_bands,2].cuda(), real_Bs[:,pmaa_bands,0].cuda()
+        M = batch["input_cld_shdw"].max(dim=1).values
+        M = [M[:,t:t+1].cuda() for t in range(3)]
+        return real_As[:,pmaa_bands,0].cuda(), real_As[:,pmaa_bands,1].cuda(), real_As[:,pmaa_bands,2].cuda(), real_Bs[:,pmaa_bands,0].cuda(), M
 
 def train(opt, model_GEN, model_DIS, cloud_detection_model, optimizer_G, optimizer_D, train_loader, val_loader):
     writer = SummaryWriter('runs29/%s' % opt.dataset_name)
@@ -223,13 +241,7 @@ def train(opt, model_GEN, model_DIS, cloud_detection_model, optimizer_G, optimiz
             if (batch_ids+1) >= 2380 // opt.batch_size: break
                 
             real_A = [[], [], []]
-            real_A[0], real_A[1], real_A[2], real_B = preprocess_images(opt, batch)
-
-            with torch.no_grad():
-                M0, _, _ = cloud_detection_model(real_A[0])
-                M1, _, _ = cloud_detection_model(real_A[1])
-                M2, _, _ = cloud_detection_model(real_A[2])
-            M = [M0, M1, M2]
+            real_A[0], real_A[1], real_A[2], real_B, M = preprocess_images(opt, batch)
 
             real_A_combined = torch.cat(
                 (real_A[0], real_A[1], real_A[2]), 1).cuda()
@@ -263,13 +275,22 @@ def train(opt, model_GEN, model_DIS, cloud_detection_model, optimizer_G, optimiz
             pred_fake = model_DIS(fake_AB)
             loss_G_GAN = criterionGAN(pred_fake, True, noise)
 
-            loss_G_L1 = criterionL1(fake_B, real_B) * opt.lambda_L1
+            if opt.dataset_name == "AllClear" and opt.masked_L1 == 1:
+                target_mask = 1 - batch["target_cld_shdw"].max(dim=1).values.cuda()
+                loss_G_L1 = criterionL1(fake_B * target_mask, real_B * target_mask) * opt.lambda_L1
+            else:
+                loss_G_L1 = criterionL1(fake_B, real_B) * opt.lambda_L1
             L1_total += loss_G_L1.item()
 
             loss_g_att = 0
             for i in range(len(cloud_mask)):
-                loss_g_att += criterionMSE(cloud_mask[i]
-                                           [:, 0, :, :], M[i][:, 0, :, :])
+                
+                if opt.dataset_name == "AllClear" and opt.pred_cloud == 1:
+                    loss_g_att += criterionMSE(cloud_mask[i]
+                                               [:, 0, :, :], 1-M[i][:, 0, :, :])                   
+                else:
+                    loss_g_att += criterionMSE(cloud_mask[i]
+                                               [:, 0, :, :], M[i][:, 0, :, :])
 
             if opt.aux_loss:
                 loss_G_aux = (criterionL1(aux_pred[0], real_B) + criterionL1(
@@ -343,7 +364,7 @@ def valid(opt, model_GEN, val_loader, criterionL1, writer, epoch):
         for batch in val_loader:
             
             real_A = [[], [], []]
-            real_A[0], real_A[1], real_A[2], real_B = preprocess_images(opt, batch, mode="validation")
+            real_A[0], real_A[1], real_A[2], real_B, _ = preprocess_images(opt, batch, mode="validation")
 
             real_A_input = torch.stack(
                 (real_A[0], real_A[1], real_A[2]), 1).cuda()

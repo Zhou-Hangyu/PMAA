@@ -18,10 +18,10 @@ conda activate H3
 cd /share/hariharan/ck696/allclear/baselines/PMAA
 
 
-# 05/12
-python train_new_0514.py --dataset_name "CTGAN_Sen2_MTC"
-# python train_new_0514.py --dataset_name "AllClear_v1"
-# python train_new_0514.py --dataset_name "AllClear_v1" --lambda_L1 10
+# 05/22
+# python train_0522.py --dataset_name "CTGAN_Sen2_MTC"
+# python train_0522.py --dataset_name "AllClear_v1" --lambda_L1 50
+python train_0522.py --dataset_name "AllClear_v1" --lambda_L1 10
 
 
 
