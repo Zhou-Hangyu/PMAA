@@ -1,7 +1,14 @@
 checkpoints0515
+checkpoints*
+data
+image
+image*
 runs29
 wandb
 watch_folder
+.github
+logs
+pretrained
 
 
 # Byte-compiled / optimized / DLL files
