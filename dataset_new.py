@@ -82,6 +82,7 @@ class Sen2_MTC(Dataset):
             self.index = 0
 
         image = torch.from_numpy((img.copy())).float()
+        # print(image.min(), image.max())
         image = image / 10000.0
         mean = torch.as_tensor([0.5, 0.5, 0.5, 0.5],
                                dtype=image.dtype, device=image.device)
